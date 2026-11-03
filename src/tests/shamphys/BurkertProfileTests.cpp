@@ -89,9 +89,9 @@ NEW_TEST(Unittest, "shamphys/BurkertProfile", 1) {
         // -G M(r) / r^2 pointing to the center
         for (f64 r : {0.01, 0.5, 3.0}) {
             f64_3 dir = f64_3{1, 2, -2} / 3.;
-            f64_3 a   = shamphys::burkert_acceleration(r * dir, rho0, r0, G);
+            f64_3 acc = shamphys::burkert_acceleration(r * dir, rho0, r0, G);
             f64 g_ref = G * shamphys::burkert_enclosed_mass(r, rho0, r0) / (r * r);
-            REQUIRE_FLOAT_EQUAL(sycl::length(a + g_ref * dir) / g_ref, 0., 1e-14);
+            REQUIRE_FLOAT_EQUAL(sycl::length(acc + g_ref * dir) / g_ref, 0., 1e-14);
         }
     }
 }
