@@ -344,6 +344,41 @@ namespace shammodels::basegodunov {
                 },
                 py::arg("g"))
             .def(
+                "add_ext_force_burkert",
+                [](TConfig &self, Tvec center, Tscal rho0, Tscal r0) {
+                    self.ext_force_config.add_burkert(center, rho0, r0);
+                },
+                py::kw_only(),
+                py::arg("center") = Tvec{0, 0, 0},
+                py::arg("rho0"),
+                py::arg("r0"),
+                R"==(
+    Add the gravitational acceleration of a static Burkert (1995) dark matter halo.
+
+    The halo density profile is
+
+    .. math::
+        \rho(r) = \frac{\rho_0 r_0^3}{(r + r_0)(r^2 + r_0^2)}
+
+    with :math:`r` the distance to ``center``, and the acceleration applied to the gas (and
+    dust) is :math:`-G M(<r) \mathbf{r} / r^3`, evaluated at the cell centers, with
+
+    .. math::
+        M(<r) = \pi \rho_0 r_0^3 \left[\ln(1 + x^2) + 2 \ln(1 + x) - 2 \arctan(x)\right],
+        \quad x = r / r_0
+
+    The gravitational constant is the one of the unit system (``cfg.set_units``, SI if not set).
+
+    Parameters
+    ----------
+    center : tuple[float, float, float]
+        Position of the halo center (default: origin)
+    rho0 : float
+        Central density of the halo (>= 0)
+    r0 : float
+        Core radius of the halo (> 0)
+)==")
+            .def(
                 "set_ext_force_coupling",
                 [](TConfig &self, ExtForceCoupling mode) {
                     self.ext_force_config.set_coupling(mode);

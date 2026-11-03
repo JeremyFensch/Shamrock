@@ -25,6 +25,7 @@ namespace {
     using Config           = shammodels::basegodunov::SolverConfig<f64_3, i64_3>;
     using ExtForceCoupling = shammodels::basegodunov::ExtForceCoupling;
     using ConstantGravity  = Config::ExtForceConfig::ConstantGravity;
+    using Burkert          = Config::ExtForceConfig::Burkert;
 
     /// REQUIRE_EQUAL needs a formattable type, so modes are compared through their json name
     std::string coupling_name(ExtForceCoupling mode) {
@@ -72,6 +73,36 @@ NEW_TEST(Unittest, "shammodels/ramses/SolverConfig::ext_force_config", 1) {
         if (g != nullptr) {
             REQUIRE_EQUAL(g->g.y(), -0.1);
         }
+    }
+
+    { // Burkert halo json roundtrip, it requires the cell coordinates
+        Config in{};
+        REQUIRE(!in.is_coordinate_field_required());
+        in.ext_force_config.add_constant_gravity({0., -0.1, 0.});
+        in.ext_force_config.add_burkert({0.5, 0.25, -1.}, 3., 0.2);
+        REQUIRE(in.is_coordinate_field_required());
+
+        Config out = json_roundtrip(in);
+        REQUIRE(out.is_coordinate_field_required());
+        REQUIRE_EQUAL(out.ext_force_config.ext_forces.size(), 2_u64);
+
+        const Burkert *b = std::get_if<Burkert>(&out.ext_force_config.ext_forces[1]);
+        REQUIRE(b != nullptr);
+        if (b != nullptr) {
+            REQUIRE_EQUAL(b->center.x(), 0.5);
+            REQUIRE_EQUAL(b->center.y(), 0.25);
+            REQUIRE_EQUAL(b->center.z(), -1.);
+            REQUIRE_EQUAL(b->rho0, 3.);
+            REQUIRE_EQUAL(b->r0, 0.2);
+        }
+    }
+
+    { // invalid Burkert parameters
+        Config cfg{};
+        REQUIRE_EXCEPTION_THROW(
+            cfg.ext_force_config.add_burkert({0., 0., 0.}, 1., 0.), std::invalid_argument);
+        REQUIRE_EXCEPTION_THROW(
+            cfg.ext_force_config.add_burkert({0., 0., 0.}, -1., 1.), std::invalid_argument);
     }
 
     { // configs dumped before the coupling was configurable fall back on the midpoint rule

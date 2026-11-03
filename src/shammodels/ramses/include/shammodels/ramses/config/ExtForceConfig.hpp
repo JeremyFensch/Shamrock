@@ -44,7 +44,20 @@ namespace shammodels::basegodunov {
             Tvec g;
         };
 
-        using Variant = std::variant<ConstantGravity>;
+        /**
+         * @brief Gravitational acceleration of a static Burkert (1995) dark matter halo
+         *
+         * Density profile \f$\rho(r) = \rho_0 r_0^3 / ((r + r_0)(r^2 + r_0^2))\f$ around
+         * `center`, see shamphys/BurkertProfile.hpp. The gravitational constant is the one of the
+         * unit system of the solver.
+         */
+        struct Burkert {
+            Tvec center;
+            Tscal rho0;
+            Tscal r0;
+        };
+
+        using Variant = std::variant<ConstantGravity, Burkert>;
 
         std::vector<Variant> ext_forces;
 
@@ -55,7 +68,29 @@ namespace shammodels::basegodunov {
 
         inline void add_constant_gravity(Tvec g) { ext_forces.push_back(ConstantGravity{g}); }
 
+        inline void add_burkert(Tvec center, Tscal rho0, Tscal r0) {
+            if (!(rho0 >= 0)) {
+                shambase::throw_with_loc<std::invalid_argument>(
+                    "Burkert external force: rho0 must be >= 0");
+            }
+            if (!(r0 > 0)) {
+                shambase::throw_with_loc<std::invalid_argument>(
+                    "Burkert external force: r0 must be > 0");
+            }
+            ext_forces.push_back(Burkert{center, rho0, r0});
+        }
+
         inline bool has_ext_forces() const { return !ext_forces.empty(); }
+
+        /// Whether one of the forces depends on the cell positions
+        inline bool requires_coordinates() const {
+            for (const auto &var_force : ext_forces) {
+                if (std::holds_alternative<Burkert>(var_force)) {
+                    return true;
+                }
+            }
+            return false;
+        }
     };
 
     template<class Tvec>
@@ -69,6 +104,14 @@ namespace shammodels::basegodunov {
                     [&](const typename EF::ConstantGravity &cfg) {
                         force_list.push_back(
                             nlohmann::json{{"force_type", "constant_gravity"}, {"g", cfg.g}});
+                    },
+                    [&](const typename EF::Burkert &cfg) {
+                        force_list.push_back(
+                            nlohmann::json{
+                                {"force_type", "burkert"},
+                                {"center", cfg.center},
+                                {"rho0", cfg.rho0},
+                                {"r0", cfg.r0}});
                     },
                 },
                 var_force);
@@ -91,6 +134,12 @@ namespace shammodels::basegodunov {
             const std::string force_type = jforce.at("force_type").get<std::string>();
             if (force_type == "constant_gravity") {
                 p.add_constant_gravity(jforce.at("g").get<Tvec>());
+            } else if (force_type == "burkert") {
+                using Tscal = typename ExtForceConfig<Tvec>::Tscal;
+                p.add_burkert(
+                    jforce.at("center").get<Tvec>(),
+                    jforce.at("rho0").get<Tscal>(),
+                    jforce.at("r0").get<Tscal>());
             } else {
                 shambase::throw_with_loc<std::runtime_error>(
                     "Invalid external force type: " + force_type);

@@ -25,6 +25,7 @@
 #include "shammodels/ramses/Solver.hpp"
 #include "shammodels/ramses/SolverConfig.hpp"
 #include "shammodels/ramses/modules/AMRGridRefinementHandler.hpp"
+#include "shammodels/ramses/modules/AddExtForceBurkert.hpp"
 #include "shammodels/ramses/modules/AddExtForceConstantGravity.hpp"
 #include "shammodels/ramses/modules/AddExtForceField.hpp"
 #include "shammodels/ramses/modules/ApplyExtForceDust.hpp"
@@ -1651,6 +1652,7 @@ void shammodels::basegodunov::Solver<Tvec, TgridVec>::init_solver_graph() {
 
         using ExtForceConfig  = typename Config::ExtForceConfig;
         using ConstantGravity = typename ExtForceConfig::ConstantGravity;
+        using Burkert         = typename ExtForceConfig::Burkert;
 
         const bool trapezoidal
             = solver_config.ext_force_config.coupling == ExtForceCoupling::Trapezoidal;
@@ -1963,6 +1965,21 @@ void shammodels::basegodunov::Solver<Tvec, TgridVec>::init_solver_graph() {
                             modules::AddExtForceConstantGravity<Tvec> node{
                                 AMRBlock::block_size, cfg.g};
                             node.set_edges(storage.block_counts, a_ext_level);
+                            ext_force_sequence.push_back(
+                                std::make_shared<decltype(node)>(std::move(node)));
+                        }
+                    },
+                    [&](const Burkert &cfg) {
+                        // static halo, the same acceleration is added at every level (the cells
+                        // do not move)
+                        for (auto &[a_ext_level, dt_level] : a_ext_levels) {
+                            modules::AddExtForceBurkert<Tvec> node{
+                                AMRBlock::block_size,
+                                cfg.center,
+                                cfg.rho0,
+                                cfg.r0,
+                                solver_config.get_constant_G()};
+                            node.set_edges(storage.block_counts, storage.coordinates, a_ext_level);
                             ext_force_sequence.push_back(
                                 std::make_shared<decltype(node)>(std::move(node)));
                         }

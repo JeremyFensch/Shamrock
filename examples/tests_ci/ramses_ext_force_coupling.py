@@ -3,7 +3,7 @@ Testing the external forces coupling modes in RAMSES solver
 ===========================================================
 
 CI test for the two time quadratures of the external forces source term
-(``cfg.set_ext_force_coupling``), with a constant gravitational acceleration:
+(``cfg.set_ext_force_coupling``):
 
 * free fall of a uniform periodic box (gas + one dust species): the momentum must follow
   :math:`\\rho \\mathbf{g} t` exactly in both modes. The trapezoidal rule must conserve the
@@ -12,6 +12,9 @@ CI test for the two time quadratures of the external forces source term
   This is checked with and without the time interpolation of the face states.
 * one step on a non uniform moving state: for a constant acceleration both modes give the same momentum
   update, and their energy differs by :math:`\\Delta t^2 \\rho^{n+1/2} g^2 / 2`.
+* one step of a uniform state at rest in the potential of a Burkert halo
+  (``cfg.add_ext_force_burkert``): the momenta must be :math:`\\rho \\mathbf{a}(\\mathbf{x}) \\Delta t`
+  with the analytical acceleration at the cell centers, in both modes.
 """
 
 import numpy as np
@@ -38,6 +41,10 @@ def zero_vel(rmin, rmax):
     return (0.0, 0.0, 0.0)
 
 
+def add_constant_gravity(cfg):
+    cfg.add_ext_force_constant_gravity(g=tuple(g))
+
+
 def run(
     mode,
     rho_map,
@@ -47,6 +54,7 @@ def run(
     vel_map=zero_vel,
     vel_dust_map=zero_vel,
     face_time_interpolation=True,
+    add_ext_forces=add_constant_gravity,
 ):
     ctx = shamrock.Context()
     ctx.pdata_layout_new()
@@ -58,7 +66,7 @@ def run(
     cfg.set_eos_gamma(gamma)
     cfg.set_dust_mode_dhll(1)
     cfg.set_face_time_interpolation(face_time_interpolation)
-    cfg.add_ext_force_constant_gravity(g=tuple(g))
+    add_ext_forces(cfg)
     cfg.set_ext_force_coupling(mode)
     model.set_solver_config(cfg)
 
@@ -206,8 +214,73 @@ def test_modes_one_step():
     assert err_de < 1e-8, f"unexpected energy difference between the modes ({err_de})"
 
 
+def burkert_acceleration(pos, center, rho0, r0, G):
+    dr = pos - np.array(center)
+    r = np.linalg.norm(dr, axis=1)
+    x = r / r0
+    mass = np.pi * rho0 * r0**3 * (np.log1p(x**2) + 2 * np.log1p(x) - 2 * np.arctan(x))
+    return -(G * mass / r**3)[:, None] * dr
+
+
+def cell_centers(data):
+    # cells are ordered block by block, x fastest
+    nside = 2
+    block_min = np.array(data["cell_min"], dtype=float)
+    block_max = np.array(data["cell_max"], dtype=float)
+    lid = np.arange(nside**3)
+    local_coord = np.stack([lid % nside, (lid // nside) % nside, lid // (nside * nside)], axis=1)
+    cell_size = (block_max - block_min) / nside
+    pos = block_min[:, None, :] + (local_coord[None, :, :] + 0.5) * cell_size[:, None, :]
+    return pos.reshape(-1, 3) / (sz * base)  # scale factor of run()
+
+
+def test_burkert():
+    rho0, rho_d0 = 1.5, 0.7
+    dt = 0.01
+
+    # G = 1 in the code units (unit_mass = 1 / G_SI kg)
+    G_SI = shamrock.Constants(shamrock.UnitSystem()).G()
+    units = shamrock.UnitSystem(unit_time=1.0, unit_length=1.0, unit_mass=1.0 / G_SI)
+    G = shamrock.Constants(units).G()
+
+    # off grid center (no cell center on it), with the core radius of the order of the box size
+    center = (0.43, 0.52, 0.61)
+    halo_rho0, halo_r0 = 3.0, 0.3
+
+    def add_burkert(cfg):
+        cfg.set_units(units)
+        cfg.add_ext_force_burkert(center=center, rho0=halo_rho0, r0=halo_r0)
+
+    for mode in [ExtForceCoupling.Midpoint, ExtForceCoupling.Trapezoidal]:
+        _, data = run(
+            mode,
+            lambda rmin, rmax: rho0,
+            lambda rmin, rmax: rho_d0,
+            dt,
+            1,
+            add_ext_forces=add_burkert,
+        )
+
+        # the collected data is only complete on rank 0
+        if shamrock.sys.world_rank() != 0:
+            continue
+
+        # uniform state at rest: no flux, the momenta only get the kick of the halo
+        a = burkert_acceleration(cell_centers(data), center, halo_rho0, halo_r0, G)
+        a_scale = float(np.max(np.linalg.norm(a, axis=1)))
+
+        err_rhov = max_rel_err(data["rhovel"], rho0 * a * dt, rho0 * a_scale * dt)
+        err_rhov_d = max_rel_err(data["rhovel_dust"], rho_d0 * a * dt, rho_d0 * a_scale * dt)
+
+        print(f"burkert {mode}: err rhovel = {err_rhov:.3e}, err rhovel_dust = {err_rhov_d:.3e}")
+
+        assert err_rhov < 1e-12, f"{mode}: gas momentum is not rho a_burkert dt ({err_rhov})"
+        assert err_rhov_d < 1e-12, f"{mode}: dust momentum is not rho_d a_burkert dt ({err_rhov_d})"
+
+
 test_free_fall()
 test_modes_one_step()
+test_burkert()
 
 if shamrock.sys.world_rank() == 0:
     print("ramses_ext_force_coupling: OK")
