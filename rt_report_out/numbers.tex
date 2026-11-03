@@ -1,0 +1,67 @@
+\newcommand{\commit}{75bf7ee}
+\newcommand{\Lx}{0.5}
+\newcommand{\Ly}{1.5}
+\newcommand{\Lz}{0.5}
+\newcommand{\yint}{0.75}
+\newcommand{\nx}{32}
+\newcommand{\ny}{96}
+\newcommand{\nz}{32}
+\newcommand{\dx}{1/64 \approx 0.0156}
+\newcommand{\tend}{10}
+\newcommand{\nframes}{51}
+\newcommand{\sigmath}{0.647}
+\newcommand{\tefold}{1.55}
+\newcommand{\walltime}{about 15 minutes (903\,s spent in \texttt{evolve\_until}) on 4 CPU cores}
+\newcommand{\morphology}{The perturbation is largest at the centre of the box, where it pushes upward, so the light fluid
+forms a single bubble rising at $x = L_x/2$. The heavy fluid sinks as a spike at the periodic edge
+$x = 0 \equiv L_x$. Until $t\approx 4$ the interface deformation stays small and sinusoidal (linear phase). By
+$t\approx 7$ the bubble has a flat-topped, rounded cap and the spike has become narrow: the up--down
+asymmetry between bubble and spike is the typical non-linear signature at moderate Atwood number. By
+$t = 9$--$10$, shear along the flanks of the bubble rolls the heavy fluid into Kelvin--Helmholtz
+vortices on both sides, giving the mushroom shape. At that point the bubble tip has reached
+$y\approx 1.0$ and the spike $y\approx 0.42$, that is, an interface displacement of about $\pm 0.3$ from
+$y_{\rm int} = 0.75$. With only 32 cells across the wavelength the interface is a few cells wide
+and the roll-ups are smooth: numerical diffusion damps secondary instabilities at smaller scales.}
+\newcommand{\growth}{Between $t=3$ and $t=7$ the kinetic energy grows exponentially. A least-squares fit gives
+$2\sigma \approx 0.90$, so $\sigma_{\rm sim} \approx 0.45$, about $70\,\%$ of the ideal value. This lower
+rate is expected for this setup: (i) the interface is spread over a few cells by the scheme, and
+a diffuse interface lowers the effective Atwood number for $k\Delta x$ not small (here
+$k\Delta x \approx 0.2$); (ii) the initial velocity field is not the pure linear eigenmode, so part
+of the initial kinetic energy goes into stable and decaying components (which is why $E_{\rm kin}$
+first decreases and oscillates (stable modes) until $t\approx 3$); (iii) the gas is weakly compressible, and the
+perturbation amplitude is no longer small after $t\approx 6$. Saturation of the growth is visible after
+$t\approx 8$, when the bubble enters the non-linear regime.}
+\newcommand{\symmetry}{The asymmetry diagnostic is \emph{exactly zero} (to the last bit) at every one of the 51
+outputs (Figure~\ref{fig:sym}). The solver therefore preserves the left--right mirror symmetry of
+the problem perfectly, including through the non-linear Kelvin--Helmholtz roll-ups, where any
+asymmetric round-off would normally be amplified. This is consistent with the symmetric van Leer
+limiter and the bitwise-deterministic design of SHAMROCK.}
+\newcommand{\energy}{The initial total energy is $E_{\rm tot}(0) \approx 2.375$, dominated by internal energy. During
+the run, $\approx 1.03\times10^{-3}$ of gravitational potential energy is released as the heavy fluid
+sinks. Of this, $\approx 0.96\times10^{-3}$ becomes kinetic energy and $\approx 6\times10^{-5}$ internal energy
+(compression and numerical dissipation; this last number depends on the output time, see below). The total energy changes by only $-2.2\times10^{-6}$
+relative to its initial value by $t=10$ (about $5\times10^{-3}$ of the energy actually exchanged). The
+drift is smooth: it stays below $1.4\times10^{-7}$ during the linear phase and grows during the
+non-linear phase. Some of it is expected, because $E_{\rm pot}$ in the diagnostic is computed at cell
+centres while the scheme conserves its own discrete energy, and because the midpoint gravity
+coupling is not exactly energy-conserving.
+
+The variation panel (Figure~\ref{fig:energy}, right) also shows $E_{\rm int}$ and $E_{\rm pot}$ exchanging
+$\sim 10^{-5}$ back and forth with a period of $\approx 2$ time units, in phase opposition, with no
+signature in $E_{\rm tot}$. This is a global vertical breathing (gravity--acoustic) mode of the gas
+column in the closed box. It is excited because the analytic hydrostatic profile, sampled at cell
+centres with a density jump, is not exactly the discrete equilibrium of the scheme, and because the
+initial $v_y$ field has a horizontally uniform part. It is small compared with the instability energy and
+does not affect the RT growth.}
+\newcommand{\summary}{\begin{itemize}
+\item The Godunov (RAMSES-like) solver with HLLC, MUSCL--Hancock and constant external gravity
+reproduces the expected Rayleigh--Taylor evolution qualitatively: a linear growth phase, a rising
+bubble and a falling spike, then Kelvin--Helmholtz mushroom caps.
+\item The measured linear growth rate, $\sigma \approx 0.45$, is $\approx 70\,\%$ of the sharp-interface,
+incompressible prediction $\sqrt{\mathcal{A}gk} \approx 0.65$, which is reasonable at 32 cells per
+wavelength.
+\item Mirror symmetry is preserved exactly (zero to machine precision).
+\item Total energy is conserved to $\sim 2\times10^{-6}$ (relative) over the run.
+\item A convergence study (\texttt{base} = 16, 32, 64) would show whether the growth rate approaches
+the theoretical value as resolution increases.
+\end{itemize}}

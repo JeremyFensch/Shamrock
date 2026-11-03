@@ -1,0 +1,186 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.3cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{float}
+
+\title{Rayleigh--Taylor instability with the SHAMROCK Godunov (RAMSES-like) solver}
+\author{Run report}
+\date{\today}
+
+\input{numbers.tex}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This report describes the Rayleigh--Taylor (RT) instability test in
+\texttt{examples/ramses/run\_rayleigh\_taylor.py} and shows the results of one run (SHAMROCK commit
+\texttt{\commit}, AdaptiveCpp OpenMP backend, one CPU device with 4 cores). A heavy fluid sits on top of a
+light one in a uniform gravity field. A small velocity perturbation at the interface grows into the
+familiar rising bubbles and falling spikes, which then roll up into mushroom shapes. We also check
+two properties the solver should keep: the left--right mirror symmetry of the setup, and the
+conservation of total (kinetic + internal + gravitational) energy.
+\end{abstract}
+
+\section{Physical problem}
+
+\subsection{Equations}
+The gas follows the compressible Euler equations with an external gravitational acceleration
+$\mathbf{g} = -g\,\mathbf{e}_y$:
+\begin{align}
+\partial_t \rho + \nabla\cdot(\rho\mathbf{v}) &= 0,\\
+\partial_t (\rho\mathbf{v}) + \nabla\cdot(\rho\mathbf{v}\otimes\mathbf{v} + P\,\mathbb{I}) &= \rho\,\mathbf{g},\\
+\partial_t (\rho e_{\rm tot}) + \nabla\cdot\big[(\rho e_{\rm tot} + P)\mathbf{v}\big] &= \rho\,\mathbf{v}\cdot\mathbf{g},
+\end{align}
+with $\rho e_{\rm tot} = \tfrac12\rho|\mathbf{v}|^2 + P/(\gamma-1)$ and an ideal-gas equation of
+state with $\gamma = 1.4$.
+
+\subsection{Why the interface is unstable}
+When a heavier fluid rests on a lighter one in a gravity field, the stratification is in
+equilibrium but that equilibrium is unstable. If the interface is displaced, heavy fluid that moves
+down and light fluid that moves up release gravitational potential energy, and that energy feeds the
+perturbation. Linear theory for two incompressible, inviscid fluids separated by a sharp interface
+gives exponential growth $\delta \propto e^{\sigma t}$, with
+\begin{equation}
+\sigma = \sqrt{\mathcal{A}\,g\,k}, \qquad \mathcal{A} = \frac{\rho_h - \rho_l}{\rho_h + \rho_l},
+\end{equation}
+where $\mathcal{A}$ is the Atwood number and $k$ the wavenumber of the perturbation. In the
+non-linear phase, light fluid rises as rounded \emph{bubbles} and heavy fluid falls as narrow
+\emph{spikes}. Shear along the spike flanks then triggers secondary Kelvin--Helmholtz roll-ups,
+which give the characteristic ``mushroom'' caps.
+
+\section{Numerical setup}
+
+\subsection{Initial conditions}
+\begin{itemize}
+\item Domain $[0,L_x]\times[0,L_y]\times[0,L_z]$ with $L_x = \Lx$, $L_y = \Ly$, $L_z = \Lz$, and the interface at
+      $y_{\rm int} = L_y/2 = \yint$.
+\item Density: $\rho_l = 1$ for $y \le y_{\rm int}$ (light fluid at the bottom), $\rho_h = 2$ above it (heavy
+      fluid at the top), which gives $\mathcal{A} = 1/3$.
+\item Pressure in hydrostatic equilibrium, continuous at the interface:
+      $P(y) = P_0 - \rho\,g\,(y - y_{\rm int})$ with $P_0 = 2.5$ and $g = 0.1$.
+\item Velocity perturbation, along $y$ only:
+      \begin{equation}
+      v_y = \frac{v_{\rm pert}}{4}\,\big[1+\cos(4\pi x')\big]\,\big[1+\cos(3\pi y')\big],\qquad
+      x' = x - L_x/2,\; y' = y - y_{\rm int},
+      \end{equation}
+      with $v_{\rm pert} = 10^{-2}$. Along $x$ this is one wavelength, $\lambda = 0.5 = L_x$
+      ($k = 4\pi$), centred on the middle of the box. All fields are evaluated at cell centres, so
+      the initial state is exactly mirror-symmetric about $x = L_x/2$.
+\end{itemize}
+The flow is nearly incompressible: the sound speed $c_s = \sqrt{\gamma P/\rho}$ is about $1.3$--$1.9$,
+while velocities stay of order $0.1$ or below. The problem is two-dimensional in nature. The $z$
+direction is resolved only so that the patches stay compact, and nothing varies along $z$.
+
+\subsection{Solver configuration}
+\begin{table}[H]
+\centering
+\begin{tabular}{ll}
+\toprule
+Model & \texttt{Ramses} (Godunov finite volume on a block-structured grid), \texttt{f64\_3}\\
+Grid & $\nx\times\ny\times\nz$ cells (blocks of $2^3$ cells), $\Delta x = \dx$\\
+Riemann solver & HLLC\\
+Reconstruction & MUSCL, symmetric van Leer slope limiter\\
+Time integration & MUSCL--Hancock predictor with face time interpolation\\
+CFL safety factor & $C_{\rm safe} = 0.8$\\
+Gravity & \texttt{add\_ext\_force\_constant\_gravity}, $\mathbf{g} = (0,-0.1,0)$\\
+Force coupling & midpoint rule (default; see below)\\
+Boundaries & periodic in $x$, reflective in $y$ and $z$\\
+Run & $t\in[0,\tend]$, \nframes\ outputs\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Gravity source term.} Each step, the constant acceleration is accumulated into an
+external-acceleration field $\mathbf{a}_{\rm ext}$ (module \texttt{AddExtForceConstantGravity}). It is then
+applied to the conservative variables after the flux update (module \texttt{ApplyExtForceGas}) with
+a midpoint rule:
+\begin{align}
+\rho^{n+1/2} &= \rho^n + \tfrac{\Delta t}{2}\,\partial_t\rho, \qquad
+(\rho\mathbf{v})^{n+1/2} = (\rho\mathbf{v})^n + \tfrac{\Delta t}{2}\,\partial_t(\rho\mathbf{v}),\\
+(\rho\mathbf{v})^{n+1} &\mathrel{+}= \Delta t\,\rho^{n+1/2}\,\mathbf{a}_{\rm ext}, \qquad
+(\rho e_{\rm tot})^{n+1} \mathrel{+}= \Delta t\,\mathbf{a}_{\rm ext}\cdot(\rho\mathbf{v})^{n+1/2}.
+\end{align}
+Here $\partial_t\rho$ and $\partial_t(\rho\mathbf{v})$ are the flux divergences of the current step,
+so the source terms are evaluated at the half step, consistent with second-order accuracy in time.
+
+\subsection{Diagnostics}
+At each output the script records:
+\begin{enumerate}
+\item a density slice through the mid-plane $z = L_z/2$, sampled on an $\nx\times\ny$ grid (the frames of
+      the GIF);
+\item the \emph{mirror-symmetry error}
+      $\max\, 2|\rho_{\rm left} - \rho_{\rm right}|/(|\rho_{\rm left}|+|\rho_{\rm right}|)$ between each point of
+      that slice and its mirror image about $x = L_x/2$. The initial conditions and the
+      equations are both symmetric, so in exact arithmetic this stays zero;
+\item the volume-integrated energies $E_{\rm kin} = \int \tfrac12\rho v^2$,
+      $E_{\rm int} = \int P/(\gamma-1)$ and $E_{\rm pot} = \int \rho g y$ (computed from cell centres), and their sum
+      $E_{\rm tot}$, which should be conserved since the box is closed in $y$ and periodic in $x$.
+\end{enumerate}
+
+\section{Results}
+
+\subsection{Morphology}
+Figure~\ref{fig:snap} shows density snapshots, and the attached \texttt{rho\_rayleigh\_taylor.gif} shows the
+whole evolution. \morphology
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{snapshots.png}
+\caption{Density in the mid-plane $z=L_z/2$ at several times. Colour scale from $\rho=1$ (light fluid)
+to $\rho=2$ (heavy fluid).}
+\label{fig:snap}
+\end{figure}
+
+\subsection{Linear growth}
+Linear theory predicts $\sigma = \sqrt{\mathcal{A} g k} = \sqrt{(1/3)(0.1)(4\pi)} \approx \sigmath$, that is, an
+$e$-folding time of $\approx\tefold$. Figure~\ref{fig:growth} shows the total kinetic energy, which scales as the square of the
+perturbation amplitude. \growth
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.7\textwidth]{growth.png}
+\caption{Kinetic energy against time on a logarithmic scale, with a slope $e^{2\sigma t}$ (the
+kinetic energy scales as amplitude squared) shown for reference.}
+\label{fig:growth}
+\end{figure}
+
+\subsection{Mirror symmetry}
+\symmetry
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.65\textwidth]{symmetry.png}
+\caption{Maximum relative left--right asymmetry of the density slice.}
+\label{fig:sym}
+\end{figure}
+
+\subsection{Energy budget}
+\energy
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.49\textwidth]{energy.png}\hfill
+\includegraphics[width=0.49\textwidth]{energy_var.png}
+\caption{Left: energy components. Right: variation with respect to $t=0$ (symlog scale).}
+\label{fig:energy}
+\end{figure}
+
+\section{Summary}
+\summary
+
+\section*{Reproducing}
+\begin{verbatim}
+cd build
+./shamenv_do shammake shamrock
+./shamenv_do ./shamrock --sycl-cfg 0:0 --rscript \
+    ../examples/ramses/run_rayleigh_taylor.py
+\end{verbatim}
+This run used \texttt{multy = 3} (the elongated $1\!:\!3$ box that the script suggests for a well-developed
+instability) instead of the default \texttt{multy = 1}. Otherwise the parameters were unchanged.
+Wall-clock time: \walltime.
+
+\end{document}
