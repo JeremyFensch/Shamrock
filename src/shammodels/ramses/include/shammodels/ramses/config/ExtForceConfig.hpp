@@ -51,10 +51,17 @@ namespace shammodels::basegodunov {
             Tscal epsilon_soft = 0.05;
         };
 
-        using Variant = std::variant<ConstantGravity, PointMassGravity>;
+        // Burkert DM halo profile
+        struct BurkertProfile {
+	  Tscal rho_0 = 1;
+	  Tscal r_0   = 1;
+	  Tvec pos    = Tvec(0.5, 0.5, 0.5);
+	};
 
-        std::vector<Variant> ext_forces;
-        bool is_coordinates_needed = false;
+        using Variant = std::variant<ConstantGravity, PointMassGravity, BurkertProfile>;
+
+        std::vector<Variant> ext_forces; 
+        bool is_coordinates_needed = false;     
 
         /// Time quadrature of the external forces source term
         ExtForceCoupling coupling = ExtForceCoupling::Midpoint;
@@ -62,11 +69,17 @@ namespace shammodels::basegodunov {
         inline void set_coupling(ExtForceCoupling mode) { coupling = mode; }
 
         inline void add_constant_gravity(Tvec g) { ext_forces.push_back(ConstantGravity{g}); }
+
         inline void add_point_mass_gravity(Tscal mass, Tvec pos, Tscal epsilon_soft) {
             ext_forces.push_back(PointMassGravity{mass, pos, epsilon_soft});
             is_coordinates_needed = true;
         }
 
+        inline void add_burkert_profile(Tscal rho_0, Tscal r_0,  Tvec pos) {
+       	    ext_forces.push_back(BurkertProfile{rho_0, r_0, pos});
+            is_coordinates_needed = true;
+        }
+      
         inline bool has_ext_forces() const { return !ext_forces.empty(); }
     };
 
@@ -90,6 +103,16 @@ namespace shammodels::basegodunov {
                                 {"pos", cfg.pos},
                                 {"epsilon_soft", cfg.epsilon_soft}});
                     },
+		    [&](const typename EF::BurkertProfile &cfg) {
+                        force_list.push_back(
+                            nlohmann::json{
+                                {"force_type", "burkert_profile"},
+                                {"rho_0", cfg.rho_0},
+				{"r_0", cfg.r_0},
+                                {"pos", cfg.pos}});
+                    },
+
+		      
                 },
                 var_force);
         }
@@ -118,6 +141,11 @@ namespace shammodels::basegodunov {
                     jforce.at("mass").get<Tscal>(),
                     jforce.at("pos").get<Tvec>(),
                     jforce.at("epsilon_soft").get<Tscal>());
+	    } else if (force_type == "burkert_profile") {
+                p.add_burkert_profile(
+                    jforce.at("rho_0").get<Tscal>(),
+		    jforce.at("r_0").get<Tscal>(),
+                    jforce.at("pos").get<Tvec>());
             } else {
                 shambase::throw_with_loc<std::runtime_error>(
                     "Invalid external force type: " + force_type);

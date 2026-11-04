@@ -27,6 +27,7 @@
 #include "shammodels/ramses/modules/AMRGridRefinementHandler.hpp"
 #include "shammodels/ramses/modules/AddExtForceConstantGravity.hpp"
 #include "shammodels/ramses/modules/AddExtForceField.hpp"
+#include "shammodels/ramses/modules/AddExtForceBurkertProfile.hpp"
 #include "shammodels/ramses/modules/AddExtForcePointMassGravity.hpp"
 #include "shammodels/ramses/modules/ApplyExtForceDust.hpp"
 #include "shammodels/ramses/modules/ApplyExtForceDustTrapezoidal.hpp"
@@ -1653,7 +1654,8 @@ void shammodels::basegodunov::Solver<Tvec, TgridVec>::init_solver_graph() {
         using ExtForceConfig   = typename Config::ExtForceConfig;
         using ConstantGravity  = typename ExtForceConfig::ConstantGravity;
         using PointMassGravity = typename ExtForceConfig::PointMassGravity;
-
+	using BurkertProfile   = typename ExtForceConfig::BurkertProfile;
+	
         const bool trapezoidal
             = solver_config.ext_force_config.coupling == ExtForceCoupling::Trapezoidal;
 
@@ -1977,6 +1979,15 @@ void shammodels::basegodunov::Solver<Tvec, TgridVec>::init_solver_graph() {
                             ext_force_sequence.push_back(
                                 std::make_shared<decltype(node)>(std::move(node)));
                         }
+                    },
+		    [&](const BurkertProfile &cfg) {
+                        for (auto &[a_ext_level, dt_level] : a_ext_levels) {
+                            modules::AddExtForceBurkertProfile<Tvec> node{
+			      AMRBlock::block_size, cfg.rho_0, cfg.r_0, cfg.pos, solver_config.get_constant_G()};
+                            node.set_edges(storage.block_counts, storage.coordinates, a_ext_level);
+                            ext_force_sequence.push_back(
+                                std::make_shared<decltype(node)>(std::move(node)));
+			}
                     },
                 },
                 var_force);
